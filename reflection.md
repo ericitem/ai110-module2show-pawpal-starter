@@ -6,21 +6,21 @@
 
 The three core actions a user should be able to perform in PawPal+ are:
 
-1. **Set up their pet profile** — The user enters basic information about themselves and their pet, including the owner's name, the pet's name, and the species. This profile provides the context the scheduler needs to personalize the plan.
+1. **Set up their pet profile**: The user enters basic information about themselves and their pet, including the owner's name, the pet's name, and the species. This profile provides the context the scheduler needs to personalize the plan.
 
-2. **Add care tasks** — The user defines individual care tasks for their pet, such as a morning walk, feeding, medication, or grooming. Each task has a title, an estimated duration in minutes, and a priority level (low, medium, or high) so the scheduler knows how to weigh it.
+2. **Add care tasks**: The user defines individual care tasks for their pet, such as a morning walk, feeding, medication, or grooming. Each task has a title, an estimated duration in minutes, and a priority level (low, medium, or high) so the scheduler knows how to weigh it.
 
-3. **Generate and view the daily schedule** — The user triggers the scheduler to produce an ordered, time-aware plan for the day. The schedule selects and sequences tasks based on priority and available time, and explains why each task was included and when it is scheduled.
+3. **Generate and view the daily schedule**: The user triggers the scheduler to produce an ordered, time-aware plan for the day. The schedule selects and sequences tasks based on priority and available time, and explains why each task was included and when it is scheduled.
 
 The initial UML design consists of four classes: Owner, Pet, Task, and Scheduler.
 
-**Owner** holds the constraints that govern the schedule — the owner's name, how many minutes they have available today, and the minimum priority level they care about. It has no behavior beyond storing that data.
+**Owner** holds the constraints that govern the schedule: the owner's name, how many minutes they have available today, and the minimum priority level they care about. It has no behavior beyond storing that data.
 
 **Pet** represents the animal being cared for. It stores the pet's name and species, and holds a reference back to its Owner so the scheduler knows whose constraints apply.
 
 **Task** represents a single care activity. It stores the task title, how long it takes in minutes, and its priority (low, medium, or high). It has one method, `priority_rank()`, which converts the priority string into a number (1, 2, or 3) so tasks can be sorted.
 
-**Scheduler** is the coordinator. It holds an Owner, a Pet, and a list of Tasks. Its `add_task()` method adds tasks to the candidate list. Its `build_plan()` method applies the owner's constraints — filtering out tasks below the minimum priority, sorting the rest by priority, and greedily filling up to the available time budget. Its `explain_plan()` method formats the resulting plan as human-readable text for display in the UI.
+**Scheduler** is the coordinator. It holds an Owner, a Pet, and a list of Tasks. Its `add_task()` method adds tasks to the candidate list. Its `build_plan()` method applies the owner's constraints: filtering out tasks below the minimum priority, sorting the rest by priority, and greedily filling up to the available time budget. Its `explain_plan()` method formats the resulting plan as human-readable text for display in the UI.
 
 **b. Design changes**
 
@@ -43,8 +43,11 @@ The initial design had no way to reset the task list once tasks were added. In a
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+**Conflict detection checks for exact start-time matches, not overlapping durations.**
+
+The `detect_conflicts()` method flags two tasks as conflicting only if they share the same `time` value (e.g., both set to `"08:00"`). It does not check whether a task's duration causes it to overlap with the next one. For example, a 30-minute task starting at `"08:00"` and a second task starting at `"08:20"` would not be flagged, even though the first task would still be running when the second one begins.
+
+This is a reasonable tradeoff for a pet care app at this stage for two reasons. First, most pet care tasks are interruptible or parallelizable: feeding a dog and giving a cat medication can reasonably happen in the same window without strict sequencing. Second, implementing overlap detection requires knowing both a start time and a duration for every task, then checking whether the interval `[start, start + duration)` for one task intersects with the interval for another. That logic is more complex to implement and harder to explain to a user than a simple "two things are scheduled at the same time" warning. The exact-match approach catches the most obvious scheduling mistakes: double-booking the same minute: while keeping the code and the user-facing output easy to understand.
 
 ---
 

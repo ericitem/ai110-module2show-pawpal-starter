@@ -45,7 +45,21 @@ class Task:
         self.last_completed_date = date.today()
 
     def create_next_occurrence(self) -> "Task":
-        """Return a new Task instance scheduled for the next occurrence based on frequency."""
+        """Return a new Task instance scheduled for the next occurrence of this task.
+
+        Calculates the next due date using timedelta based on the task's frequency:
+        daily tasks recur in 1 day, weekly tasks recur in 7 days. The new instance
+        copies all attributes (title, duration, priority, frequency, time) and sets
+        next_due_date so due_today() returns False until that date arrives.
+
+        Returns:
+            A fresh Task with next_due_date set to today + 1 day (daily) or
+            today + 7 days (weekly).
+
+        Raises:
+            No exception — caller is responsible for ensuring frequency is
+            'daily' or 'weekly' before calling this method.
+        """
         days = 1 if self.frequency == "daily" else 7
         next_task = Task(
             title=self.title,
@@ -119,8 +133,7 @@ class Scheduler:
 
     def build_plan(self) -> dict:
         """Build today's schedule. Returns {"scheduled": [...], "skipped": [...]}."""
-        priority_order = {"low": 1, "medium": 2, "high": 3}
-        min_rank = priority_order.get(self.owner.min_priority, 1)
+        min_rank = {"low": 1, "medium": 2, "high": 3}.get(self.owner.min_priority, 1)
 
         scheduled = []
         skipped = []
@@ -129,10 +142,7 @@ class Scheduler:
         for pet in self.owner.pets:
             for task in pet.get_tasks():
                 if not task.due_today():
-                    if task.frequency == "as needed":
-                        reason = "scheduled as needed"
-                    else:
-                        reason = "not due today"
+                    reason = "scheduled as needed" if task.frequency == "as needed" else "not due today"
                     skipped.append({"task": task, "reason": reason, "pet": pet.name})
                 elif task.priority_rank() < min_rank:
                     skipped.append({"task": task, "reason": "below minimum priority", "pet": pet.name})
@@ -193,17 +203,74 @@ class Scheduler:
 
         return "\n".join(lines)
 
+    def detect_conflicts(self, scheduled: list) -> list:
+        """Return warning strings for any time slot shared by two or more scheduled tasks.
+
+        Groups scheduled task dicts by their start time and flags any slot where
+        more than one task is assigned. Conflict detection uses exact time-string
+        matching ("HH:MM") — overlapping durations are not checked. Tasks with
+        no 'time' value are ignored. Results are sorted chronologically.
+
+        Args:
+            scheduled: list of task dicts with 'task' and 'pet' keys, typically
+                       plan['scheduled'] returned by build_plan().
+
+        Returns:
+            A list of warning strings, one per conflicting time slot, in the form
+            "WARNING: conflict at HH:MM — Task A (Pet1), Task B (Pet2)".
+            Returns an empty list if no conflicts are found. Never raises.
+        """
+        by_time = {}
+        for item in scheduled:
+            t = item["task"].time
+            if t is not None:
+                by_time.setdefault(t, []).append(item)
+
+        warnings = []
+        for time_slot, items in sorted(by_time.items()):
+            if len(items) > 1:
+                names = ", ".join(
+                    f"{item['task'].title} ({item['pet']})" for item in items
+                )
+                warnings.append(f"WARNING: conflict at {time_slot} — {names}")
+        return warnings
+
     def sort_by_time(self, tasks: list) -> list:
-        """Return tasks sorted by their start time (HH:MM). Tasks with no time set sort last."""
+        """Return a new list of Task objects sorted chronologically by start time.
+
+        Uses Python's sorted() with a lambda key that extracts each task's 'time'
+        string. Because times are stored in zero-padded "HH:MM" format, lexicographic
+        string comparison produces correct chronological order. Tasks with time=None
+        receive the sentinel key "99:99" so they sort to the end of the list.
+
+        Args:
+            tasks: list of Task objects to sort. The original list is not modified.
+
+        Returns:
+            A new list of the same Task objects in ascending time order, with
+            un-timed tasks appended last.
+        """
         return sorted(tasks, key=lambda t: t.time if t.time is not None else "99:99")
 
     def filter_tasks(self, tasks: list, pet_name: str | None = None, status: str | None = None) -> list:
-        """Filter a list of task dicts (from build_plan) by pet name and/or completion status.
+        """Filter a list of scheduled task dicts by pet name and/or completion status.
+
+        Both filters are optional and can be combined. Filtering is display-only —
+        it does not re-run the scheduler or alter any task state. The original list
+        is not modified.
 
         Args:
-            tasks:    list of dicts with 'task' and 'pet' keys, e.g. plan['scheduled']
-            pet_name: if given, keep only tasks belonging to this pet
-            status:   'pending' (not completed today), 'completed' (done today), or None for all
+            tasks:    list of task dicts with 'task' and 'pet' keys, typically
+                      plan['scheduled'] returned by build_plan().
+            pet_name: if provided, only items whose 'pet' matches this string are
+                      kept. Case-sensitive. Pass None to include all pets.
+            status:   'pending' keeps tasks where task.completed is False (not yet
+                      done today). 'completed' keeps tasks where task.completed is
+                      True (marked done today). Pass None to include all statuses.
+
+        Returns:
+            A new list containing only the items that match all supplied filters.
+            Returns an empty list if no items match. Never raises.
         """
         result = tasks
         if pet_name is not None:
