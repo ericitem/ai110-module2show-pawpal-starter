@@ -1,3 +1,6 @@
+from datetime import date
+
+
 class Task:
     def __init__(self, title: str, duration_minutes: int, priority: str, frequency: str = "daily"):
         """Initialize a care task with a title, duration, priority, and frequency."""
@@ -5,7 +8,24 @@ class Task:
         self.duration_minutes = duration_minutes
         self.priority = priority
         self.frequency = frequency
-        self.completed = False
+        self.last_completed_date: date | None = None
+
+    @property
+    def completed(self) -> bool:
+        """True if this task was marked complete today."""
+        return self.last_completed_date == date.today()
+
+    def due_today(self) -> bool:
+        """Return True if this task should appear in today's schedule."""
+        if self.frequency == "as needed":
+            return False
+        if self.frequency == "daily":
+            return self.last_completed_date != date.today()
+        if self.frequency == "weekly":
+            if self.last_completed_date is None:
+                return True
+            return (date.today() - self.last_completed_date).days > 6
+        return True
 
     def priority_rank(self) -> int:
         """Return a numeric rank for the task's priority (high=3, medium=2, low=1)."""
@@ -15,8 +35,8 @@ class Task:
         return valid[self.priority]
 
     def mark_complete(self) -> None:
-        """Mark the task as completed."""
-        self.completed = True
+        """Mark the task as completed today."""
+        self.last_completed_date = date.today()
 
     def __repr__(self):
         """Return a readable string representation of the task."""
