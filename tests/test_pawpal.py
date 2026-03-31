@@ -95,3 +95,79 @@ def test_add_task_same_title_different_pet_does_not_raise():
     luna.add_task(Task("Feeding", duration_minutes=10, priority="high"))
     assert len(mochi.get_tasks()) == 1
     assert len(luna.get_tasks()) == 1
+
+
+from pawpal_system import Owner, Scheduler
+
+
+def _make_owner_with_pets():
+    """Helper: owner with two pets and a mix of tasks."""
+    owner = Owner("Jordan", available_minutes=40, min_priority="low")
+    mochi = Pet("Mochi", "dog")
+    luna = Pet("Luna", "cat")
+    mochi.add_task(Task("Morning walk", duration_minutes=20, priority="high", frequency="daily"))
+    mochi.add_task(Task("Grooming", duration_minutes=30, priority="medium", frequency="weekly"))
+    luna.add_task(Task("Medication", duration_minutes=5, priority="high", frequency="daily"))
+    luna.add_task(Task("Vet visit", duration_minutes=60, priority="high", frequency="as needed"))
+    owner.add_pet(mochi)
+    owner.add_pet(luna)
+    return owner
+
+
+def test_build_plan_returns_dict_with_scheduled_and_skipped():
+    owner = _make_owner_with_pets()
+    plan = Scheduler(owner).build_plan()
+    assert "scheduled" in plan
+    assert "skipped" in plan
+
+
+def test_build_plan_as_needed_tasks_are_skipped():
+    owner = _make_owner_with_pets()
+    plan = Scheduler(owner).build_plan()
+    skipped_titles = [item["task"].title for item in plan["skipped"]]
+    assert "Vet visit" in skipped_titles
+
+
+def test_build_plan_skipped_has_reason_and_pet():
+    owner = _make_owner_with_pets()
+    plan = Scheduler(owner).build_plan()
+    for item in plan["skipped"]:
+        assert "reason" in item
+        assert "pet" in item
+
+
+def test_build_plan_overflow_task_goes_to_skipped():
+    owner = Owner("Jordan", available_minutes=10, min_priority="low")
+    mochi = Pet("Mochi", "dog")
+    mochi.add_task(Task("Long bath", duration_minutes=60, priority="high", frequency="daily"))
+    owner.add_pet(mochi)
+    plan = Scheduler(owner).build_plan()
+    assert len(plan["scheduled"]) == 0
+    skipped_reasons = [item["reason"] for item in plan["skipped"]]
+    assert "exceeds time budget" in skipped_reasons
+
+
+def test_build_plan_sorted_priority_desc_duration_asc():
+    owner = Owner("Jordan", available_minutes=60, min_priority="low")
+    mochi = Pet("Mochi", "dog")
+    mochi.add_task(Task("Long high", duration_minutes=30, priority="high", frequency="daily"))
+    mochi.add_task(Task("Short high", duration_minutes=10, priority="high", frequency="daily"))
+    mochi.add_task(Task("Medium task", duration_minutes=15, priority="medium", frequency="daily"))
+    owner.add_pet(mochi)
+    plan = Scheduler(owner).build_plan()
+    scheduled_titles = [item["task"].title for item in plan["scheduled"]]
+    assert scheduled_titles.index("Short high") < scheduled_titles.index("Long high")
+    assert scheduled_titles.index("Long high") < scheduled_titles.index("Medium task")
+
+
+def test_build_plan_below_min_priority_goes_to_skipped():
+    owner = Owner("Jordan", available_minutes=60, min_priority="high")
+    mochi = Pet("Mochi", "dog")
+    mochi.add_task(Task("Low task", duration_minutes=10, priority="low", frequency="daily"))
+    mochi.add_task(Task("High task", duration_minutes=10, priority="high", frequency="daily"))
+    owner.add_pet(mochi)
+    plan = Scheduler(owner).build_plan()
+    scheduled_titles = [item["task"].title for item in plan["scheduled"]]
+    skipped_titles = [item["task"].title for item in plan["skipped"]]
+    assert "High task" in scheduled_titles
+    assert "Low task" in skipped_titles

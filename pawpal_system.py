@@ -100,37 +100,54 @@ class Scheduler:
         """Initialize the scheduler with an owner whose pets and constraints it will use."""
         self.owner = owner
 
-    def build_plan(self) -> list:
-        """Build an ordered daily plan by filtering, sorting, and greedily selecting tasks."""
+    def build_plan(self) -> dict:
+        """Build today's schedule. Returns {"scheduled": [...], "skipped": [...]}."""
         priority_order = {"low": 1, "medium": 2, "high": 3}
         min_rank = priority_order.get(self.owner.min_priority, 1)
 
-        all_tasks = self.owner.get_all_tasks()
-        eligible = [t for t in all_tasks if not t.completed and t.priority_rank() >= min_rank]
-        eligible.sort(key=lambda t: t.priority_rank(), reverse=True)
+        scheduled = []
+        skipped = []
+        eligible = []
 
-        plan = []
+        for pet in self.owner.pets:
+            for task in pet.get_tasks():
+                if not task.due_today():
+                    skipped.append({"task": task, "reason": "not due today", "pet": pet.name})
+                elif task.priority_rank() < min_rank:
+                    skipped.append({"task": task, "reason": "below minimum priority", "pet": pet.name})
+                else:
+                    eligible.append((task, pet.name))
+
+        eligible.sort(key=lambda tp: (-tp[0].priority_rank(), tp[0].duration_minutes))
+
         total = 0
-        for task in eligible:
+        for task, pet_name in eligible:
             if total + task.duration_minutes <= self.owner.available_minutes:
                 total += task.duration_minutes
                 reason = (
                     f"{task.priority.capitalize()} priority — "
                     f"fits within time budget ({total}/{self.owner.available_minutes} min used)"
                 )
-                plan.append({
+                scheduled.append({
                     "task": task,
                     "reason": reason,
                     "cumulative_minutes": total,
+                    "pet": pet_name,
                 })
-        return plan
+            else:
+                skipped.append({"task": task, "reason": "exceeds time budget", "pet": pet_name})
 
-    def explain_plan(self, plan: list) -> str:
-        """Format the plan as a human-readable schedule string for terminal or UI display."""
-        if not plan:
+        return {"scheduled": scheduled, "skipped": skipped}
+
+    def explain_plan(self, plan: dict) -> str:
+        """Format the plan as a human-readable schedule string."""
+        scheduled = plan["scheduled"]
+        skipped = plan["skipped"]
+
+        if not scheduled:
             return "No tasks scheduled today. Try lowering the minimum priority or adding more tasks."
 
-        total = plan[-1]["cumulative_minutes"]
+        total = scheduled[-1]["cumulative_minutes"]
         pets = ", ".join(p.name for p in self.owner.pets)
         lines = [
             f"Owner  : {self.owner.name}",
@@ -138,14 +155,21 @@ class Scheduler:
             f"Budget : {total}/{self.owner.available_minutes} min used",
             "",
         ]
-        for i, item in enumerate(plan, start=1):
+        for i, item in enumerate(scheduled, start=1):
             task = item["task"]
-            lines.append(f"  {i}. {task.title}")
+            lines.append(f"  {i}. {task.title} ({item['pet']})")
             lines.append(f"     Duration  : {task.duration_minutes} min")
             lines.append(f"     Priority  : {task.priority}")
             lines.append(f"     Frequency : {task.frequency}")
             lines.append(f"     Why       : {item['reason']}")
             lines.append("")
+
+        if skipped:
+            lines.append("Skipped tasks:")
+            for item in skipped:
+                lines.append(f"  - {item['task'].title} ({item['pet']}): {item['reason']}")
+            lines.append("")
+
         return "\n".join(lines)
 
     def mark_task_complete(self, task: Task) -> None:
