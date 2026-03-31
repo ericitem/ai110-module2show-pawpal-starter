@@ -122,9 +122,9 @@ if "plan" in st.session_state and st.session_state.plan is not None:
     if pet_filter != "All Pets":
         filtered = [item for item in filtered if item["pet"] == pet_filter]
     if status_filter == "Pending":
-        filtered = [item for item in filtered if item["task"].due_today()]
+        filtered = [item for item in filtered if not item["task"].completed]
     elif status_filter == "Completed":
-        filtered = [item for item in filtered if not item["task"].due_today()]
+        filtered = [item for item in filtered if item["task"].completed]
 
     # Display scheduled tasks
     if filtered:
