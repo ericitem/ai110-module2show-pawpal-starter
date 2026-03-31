@@ -1,40 +1,39 @@
 # PawPal+ (Module 2 Project)
 
-You are building **PawPal+**, a Streamlit app that helps a pet owner plan care tasks for their pet.
+**PawPal+** is a Streamlit app that helps a pet owner plan daily care tasks for one or more pets. The owner sets a time budget and minimum priority level; the scheduler selects, orders, and explains each task automatically.
 
-## Scenario
+## Features
 
-A busy pet owner needs help staying consistent with pet care. They want an assistant that can:
+### Core Workflow
+- Enter owner info (name, available time, minimum priority)
+- Add multiple pets (name, species)
+- Add tasks per pet (title, duration, priority, frequency, optional start time)
+- Generate a prioritized daily schedule with explanations
 
-- Track pet care tasks (walks, feeding, meds, enrichment, grooming, etc.)
-- Consider constraints (time available, priority, owner preferences)
-- Produce a daily plan and explain why it chose that plan
+### Smarter Scheduling
 
-Your job is to design the system first (UML), then implement the logic in Python, then connect it to the Streamlit UI.
+**Priority-based scheduling with greedy time packing**
+Tasks are sorted by priority (high → medium → low), then by duration (shorter first) when priorities tie. The scheduler greedily fills the owner's time budget, skipping any task that would overflow it.
 
-## What you will build
+**Recurring task logic**
+Each task carries a `frequency` (`daily`, `weekly`, `as needed`) and a `last_completed_date`. `due_today()` uses these to decide whether a task belongs in today's plan. When a task is marked complete, the scheduler automatically creates the next occurrence using `timedelta` and replaces the old task.
 
-Your final app should:
+**Conflict detection**
+`detect_conflicts()` scans the scheduled plan for tasks sharing the same start time across any pet and returns human-readable warnings. The UI surfaces these as highlighted alerts so the owner can resolve double-bookings at a glance.
 
-- Let a user enter basic owner + pet info
-- Let a user add/edit tasks (duration + priority at minimum)
-- Generate a daily schedule/plan based on constraints and priorities
-- Display the plan clearly (and ideally explain the reasoning)
-- Include tests for the most important scheduling behaviors
+**Time-based sorting**
+`sort_by_time()` orders tasks chronologically using zero-padded `"HH:MM"` strings. Tasks without a start time are pushed to the end. The task list in the UI is always displayed in this sorted order.
 
-## Smarter Scheduling
+**Pet and status filtering**
+`filter_tasks()` accepts an optional pet name and/or status (`pending` / `completed`) and returns a filtered view of the scheduled plan without re-running the scheduler or changing any task state.
 
-The scheduler goes beyond a basic priority filter with four algorithmic improvements:
+## 📸 Demo
 
-**Recurring task logic**: Tasks carry a `frequency` (`daily`, `weekly`, `as needed`) and a `last_completed_date`. The `due_today()` method uses these to decide whether a task should appear in today's plan: daily tasks reappear the next day, weekly tasks reappear after 7 days, and `as needed` tasks are never auto-scheduled. When a task is marked complete, `mark_task_complete()` automatically creates the next occurrence using `timedelta` and replaces the old task in the pet's list.
+![PawPal+ screenshot](docs/screenshot.png)
 
-**Conflict detection**: `detect_conflicts()` scans the scheduled plan for tasks sharing the same start time (`HH:MM`) across any pet. Rather than raising an error, it returns a list of human-readable warning strings so the owner can resolve conflicts without the app crashing.
+> _Add a screenshot by saving it to `docs/screenshot.png` and committing it._
 
-**Time-based sorting**: `sort_by_time()` uses Python's `sorted()` with a lambda key to order tasks chronologically. Zero-padded `"HH:MM"` strings sort correctly as plain strings, so no time parsing is needed. Tasks without a start time are pushed to the end using the sentinel value `"99:99"`.
-
-**Pet and status filtering**: `filter_tasks()` accepts an optional pet name and/or status (`"pending"` / `"completed"`) and returns a filtered view of the scheduled plan. Filtering is display-only: it never re-runs the scheduler or changes any task state.
-
-## Getting started
+## Getting Started
 
 ### Setup
 
@@ -43,6 +42,34 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+### Run the app
+
+```bash
+streamlit run app.py
+```
+
+### Run the tests
+
+```bash
+pytest
+```
+
+## Project Structure
+
+```
+pawpal_system.py   # Backend: Task, Pet, Owner, Scheduler classes
+app.py             # Frontend: Streamlit UI
+main.py            # Terminal demo of all scheduler features
+tests/
+  test_pawpal.py   # 49 unit tests covering all scheduler behaviors
+class-diagram.md   # Mermaid.js UML diagram
+reflection.md      # Design decisions and project reflection
+```
+
+## System Design
+
+See [`class-diagram.md`](class-diagram.md) for the full UML class diagram.
 
 ### Suggested workflow
 

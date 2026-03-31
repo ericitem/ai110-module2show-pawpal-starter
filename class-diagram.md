@@ -2,43 +2,55 @@
 
 ```mermaid
 classDiagram
-    class Owner {
-        +str name
-        +int available_minutes
-        +str min_priority
-        +__init__(name, available_minutes, min_priority)
+    class Task {
+        +str title
+        +int duration_minutes
+        +str priority
+        +str frequency
+        +str|None time
+        +date|None last_completed_date
+        +date|None next_due_date
+        +bool completed
+        +due_today() bool
+        +priority_rank() int
+        +mark_complete() None
+        +create_next_occurrence() Task
         +__repr__() str
     }
 
     class Pet {
         +str name
         +str species
-        +Owner owner
-        +__init__(name, species, owner)
+        +list tasks
+        +add_task(task Task) None
+        +get_tasks() list
         +__repr__() str
     }
 
-    class Task {
-        +str title
-        +int duration_minutes
-        +str priority
-        +__init__(title, duration_minutes, priority)
-        +priority_rank() int
+    class Owner {
+        +str name
+        +int available_minutes
+        +str min_priority
+        +list pets
+        +add_pet(pet Pet) None
+        +get_all_tasks() list
         +__repr__() str
     }
 
     class Scheduler {
         +Owner owner
-        +Pet pet
-        +list tasks
-        +__init__(owner, pet)
-        +add_task(task) None
-        +build_plan() list
-        +explain_plan(plan) str
+        +build_plan() dict
+        +explain_plan(plan dict) str
+        +detect_conflicts(scheduled list) list
+        +sort_by_time(tasks list) list
+        +filter_tasks(tasks list, pet_name str, status str) list
+        +mark_task_complete(task Task) Task
+        +get_pending_tasks() list
+        +get_completed_tasks() list
     }
 
-    Pet --> Owner : belongs to
-    Scheduler --> Owner : uses constraints from
-    Scheduler --> Pet : schedules for
-    Scheduler --> Task : selects from
+    Owner "1" --> "0..*" Pet : owns
+    Pet "1" --> "0..*" Task : has
+    Scheduler "1" --> "1" Owner : schedules for
+    Task ..> Task : create_next_occurrence()
 ```
