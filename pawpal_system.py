@@ -1,14 +1,16 @@
-from datetime import date
+from datetime import date, timedelta
 
 
 class Task:
-    def __init__(self, title: str, duration_minutes: int, priority: str, frequency: str = "daily"):
-        """Initialize a care task with a title, duration, priority, and frequency."""
+    def __init__(self, title: str, duration_minutes: int, priority: str, frequency: str = "daily", time: str | None = None):
+        """Initialize a care task with a title, duration, priority, frequency, and optional start time (HH:MM)."""
         self.title = title
         self.duration_minutes = duration_minutes
         self.priority = priority
         self.frequency = frequency
+        self.time = time  # optional start time in "HH:MM" format, e.g. "08:30"
         self.last_completed_date: date | None = None
+        self.next_due_date: date | None = None  # set when a next occurrence is scheduled
 
     @property
     def completed(self) -> bool:
@@ -17,6 +19,8 @@ class Task:
 
     def due_today(self) -> bool:
         """Return True if this task should appear in today's schedule."""
+        if self.next_due_date is not None:
+            return self.next_due_date <= date.today()
         if self.frequency == "as needed":
             return False
         if self.frequency == "daily":
@@ -39,6 +43,19 @@ class Task:
     def mark_complete(self) -> None:
         """Mark the task as completed today."""
         self.last_completed_date = date.today()
+
+    def create_next_occurrence(self) -> "Task":
+        """Return a new Task instance scheduled for the next occurrence based on frequency."""
+        days = 1 if self.frequency == "daily" else 7
+        next_task = Task(
+            title=self.title,
+            duration_minutes=self.duration_minutes,
+            priority=self.priority,
+            frequency=self.frequency,
+            time=self.time,
+        )
+        next_task.next_due_date = date.today() + timedelta(days=days)
+        return next_task
 
     def __repr__(self):
         """Return a readable string representation of the task."""
@@ -176,9 +193,51 @@ class Scheduler:
 
         return "\n".join(lines)
 
-    def mark_task_complete(self, task: Task) -> None:
-        """Mark the given task as completed."""
+    def sort_by_time(self, tasks: list) -> list:
+        """Return tasks sorted by their start time (HH:MM). Tasks with no time set sort last."""
+        return sorted(tasks, key=lambda t: t.time if t.time is not None else "99:99")
+
+    def filter_tasks(self, tasks: list, pet_name: str | None = None, status: str | None = None) -> list:
+        """Filter a list of task dicts (from build_plan) by pet name and/or completion status.
+
+        Args:
+            tasks:    list of dicts with 'task' and 'pet' keys, e.g. plan['scheduled']
+            pet_name: if given, keep only tasks belonging to this pet
+            status:   'pending' (not completed today), 'completed' (done today), or None for all
+        """
+        result = tasks
+        if pet_name is not None:
+            result = [item for item in result if item["pet"] == pet_name]
+        if status == "pending":
+            result = [item for item in result if not item["task"].completed]
+        elif status == "completed":
+            result = [item for item in result if item["task"].completed]
+        return result
+
+    def mark_task_complete(self, task: Task) -> "Task | None":
+        """Mark task complete. For daily/weekly tasks, schedules the next occurrence.
+
+        The completed task is replaced in the pet's task list with a new instance
+        due in 1 day (daily) or 7 days (weekly). Returns the new Task, or None
+        for 'as needed' tasks.
+        """
         task.mark_complete()
+        if task.frequency not in ("daily", "weekly"):
+            return None
+
+        owning_pet = None
+        for pet in self.owner.pets:
+            if task in pet.tasks:
+                owning_pet = pet
+                break
+
+        if owning_pet is None:
+            return None
+
+        next_task = task.create_next_occurrence()
+        owning_pet.tasks.remove(task)
+        owning_pet.tasks.append(next_task)
+        return next_task
 
     def get_pending_tasks(self) -> list:
         """Return all incomplete tasks across the owner's pets."""

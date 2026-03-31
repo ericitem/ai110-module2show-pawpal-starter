@@ -168,3 +168,61 @@ def test_build_plan_below_min_priority_goes_to_skipped():
     skipped_titles = [item["task"].title for item in plan["skipped"]]
     assert "High task" in scheduled_titles
     assert "Low task" in skipped_titles
+
+
+def test_mark_task_complete_daily_creates_next_occurrence():
+    owner = Owner("Jordan", available_minutes=60, min_priority="low")
+    mochi = Pet("Mochi", "dog")
+    task = Task("Morning walk", duration_minutes=20, priority="high", frequency="daily")
+    mochi.add_task(task)
+    owner.add_pet(mochi)
+    scheduler = Scheduler(owner)
+
+    next_task = scheduler.mark_task_complete(task)
+
+    assert next_task is not None
+    assert next_task.title == "Morning walk"
+    assert next_task.next_due_date == date.today() + timedelta(days=1)
+    assert next_task in mochi.get_tasks()
+    assert task not in mochi.get_tasks()
+
+
+def test_mark_task_complete_weekly_creates_next_occurrence():
+    owner = Owner("Jordan", available_minutes=60, min_priority="low")
+    mochi = Pet("Mochi", "dog")
+    task = Task("Grooming", duration_minutes=30, priority="medium", frequency="weekly")
+    mochi.add_task(task)
+    owner.add_pet(mochi)
+    scheduler = Scheduler(owner)
+
+    next_task = scheduler.mark_task_complete(task)
+
+    assert next_task is not None
+    assert next_task.next_due_date == date.today() + timedelta(days=7)
+    assert next_task in mochi.get_tasks()
+
+
+def test_mark_task_complete_as_needed_returns_none():
+    owner = Owner("Jordan", available_minutes=60, min_priority="low")
+    mochi = Pet("Mochi", "dog")
+    task = Task("Vet visit", duration_minutes=60, priority="high", frequency="as needed")
+    mochi.add_task(task)
+    owner.add_pet(mochi)
+    scheduler = Scheduler(owner)
+
+    result = scheduler.mark_task_complete(task)
+
+    assert result is None
+    assert task in mochi.get_tasks()
+
+
+def test_next_occurrence_not_due_today():
+    task = Task("Morning walk", duration_minutes=20, priority="high", frequency="daily")
+    task.next_due_date = date.today() + timedelta(days=1)
+    assert task.due_today() is False
+
+
+def test_next_occurrence_due_today():
+    task = Task("Morning walk", duration_minutes=20, priority="high", frequency="daily")
+    task.next_due_date = date.today()
+    assert task.due_today() is True
