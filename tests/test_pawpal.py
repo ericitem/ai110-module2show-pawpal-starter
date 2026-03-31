@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 import pytest
-from pawpal_system import Task, Pet
+from pawpal_system import Task, Pet, Owner, Scheduler
 
 
 def test_mark_complete_changes_task_status():
@@ -95,9 +95,6 @@ def test_add_task_same_title_different_pet_does_not_raise():
     luna.add_task(Task("Feeding", duration_minutes=10, priority="high"))
     assert len(mochi.get_tasks()) == 1
     assert len(luna.get_tasks()) == 1
-
-
-from pawpal_system import Owner, Scheduler
 
 
 def _make_owner_with_pets():

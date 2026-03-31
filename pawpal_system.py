@@ -112,7 +112,11 @@ class Scheduler:
         for pet in self.owner.pets:
             for task in pet.get_tasks():
                 if not task.due_today():
-                    skipped.append({"task": task, "reason": "not due today", "pet": pet.name})
+                    if task.frequency == "as needed":
+                        reason = "scheduled as needed"
+                    else:
+                        reason = "not due today"
+                    skipped.append({"task": task, "reason": reason, "pet": pet.name})
                 elif task.priority_rank() < min_rank:
                     skipped.append({"task": task, "reason": "below minimum priority", "pet": pet.name})
                 else:
