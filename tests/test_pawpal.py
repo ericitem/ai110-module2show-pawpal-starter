@@ -1,3 +1,4 @@
+import pytest
 from datetime import date, timedelta
 from pawpal_system import Task, Pet
 
@@ -64,3 +65,33 @@ def test_due_today_daily_never_completed():
     task = Task("Morning walk", duration_minutes=20, priority="high", frequency="daily")
     task.last_completed_date = None
     assert task.due_today() is True
+
+
+def test_add_task_duplicate_title_raises():
+    pet = Pet("Mochi", "dog")
+    pet.add_task(Task("Morning walk", duration_minutes=20, priority="high"))
+    with pytest.raises(ValueError, match="Morning walk"):
+        pet.add_task(Task("Morning walk", duration_minutes=20, priority="high"))
+
+
+def test_add_task_duplicate_title_case_insensitive_raises():
+    pet = Pet("Mochi", "dog")
+    pet.add_task(Task("Morning walk", duration_minutes=20, priority="high"))
+    with pytest.raises(ValueError):
+        pet.add_task(Task("morning walk", duration_minutes=20, priority="high"))
+
+
+def test_add_task_different_title_does_not_raise():
+    pet = Pet("Mochi", "dog")
+    pet.add_task(Task("Morning walk", duration_minutes=20, priority="high"))
+    pet.add_task(Task("Feeding", duration_minutes=10, priority="high"))
+    assert len(pet.get_tasks()) == 2
+
+
+def test_add_task_same_title_different_pet_does_not_raise():
+    mochi = Pet("Mochi", "dog")
+    luna = Pet("Luna", "cat")
+    mochi.add_task(Task("Feeding", duration_minutes=10, priority="high"))
+    luna.add_task(Task("Feeding", duration_minutes=10, priority="high"))
+    assert len(mochi.get_tasks()) == 1
+    assert len(luna.get_tasks()) == 1

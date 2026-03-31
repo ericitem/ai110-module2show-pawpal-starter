@@ -54,7 +54,12 @@ class Pet:
         self.tasks = []
 
     def add_task(self, task: Task) -> None:
-        """Add a care task to this pet's task list."""
+        """Add a care task to this pet's task list. Raises ValueError on duplicate title."""
+        for existing in self.tasks:
+            if existing.title.lower() == task.title.lower():
+                raise ValueError(
+                    f"Task '{task.title}' already exists for {self.name}. Remove it first."
+                )
         self.tasks.append(task)
 
     def get_tasks(self) -> list:
