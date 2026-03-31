@@ -1,5 +1,5 @@
-import pytest
 from datetime import date, timedelta
+import pytest
 from pawpal_system import Task, Pet
 
 
@@ -77,7 +77,7 @@ def test_add_task_duplicate_title_raises():
 def test_add_task_duplicate_title_case_insensitive_raises():
     pet = Pet("Mochi", "dog")
     pet.add_task(Task("Morning walk", duration_minutes=20, priority="high"))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="morning walk"):
         pet.add_task(Task("morning walk", duration_minutes=20, priority="high"))
 
 
