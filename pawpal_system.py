@@ -20,12 +20,14 @@ class Task:
         if self.frequency == "as needed":
             return False
         if self.frequency == "daily":
+            if self.last_completed_date is None:
+                return True
             return self.last_completed_date != date.today()
         if self.frequency == "weekly":
             if self.last_completed_date is None:
                 return True
             return (date.today() - self.last_completed_date).days > 6
-        return True
+        raise ValueError(f"Unknown frequency {self.frequency!r}. Must be 'daily', 'weekly', or 'as needed'.")
 
     def priority_rank(self) -> int:
         """Return a numeric rank for the task's priority (high=3, medium=2, low=1)."""

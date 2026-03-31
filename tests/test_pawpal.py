@@ -58,3 +58,9 @@ def test_completed_is_true_after_mark_complete():
     task = Task("Feeding", duration_minutes=10, priority="high")
     task.mark_complete()
     assert task.completed is True
+
+
+def test_due_today_daily_never_completed():
+    task = Task("Morning walk", duration_minutes=20, priority="high", frequency="daily")
+    task.last_completed_date = None
+    assert task.due_today() is True
