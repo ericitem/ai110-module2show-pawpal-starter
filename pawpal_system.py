@@ -25,7 +25,10 @@ class Task:
         self.priority = priority
 
     def priority_rank(self) -> int:
-        return {"low": 1, "medium": 2, "high": 3}.get(self.priority, 0)
+        valid = {"low": 1, "medium": 2, "high": 3}
+        if self.priority not in valid:
+            raise ValueError(f"Invalid priority {self.priority!r}. Must be 'low', 'medium', or 'high'.")
+        return valid[self.priority]
 
     def __repr__(self):
         return f"Task({self.title!r}, {self.duration_minutes}min, {self.priority!r})"
@@ -39,6 +42,9 @@ class Scheduler:
 
     def add_task(self, task: Task) -> None:
         raise NotImplementedError
+
+    def clear_tasks(self) -> None:
+        self.tasks = []
 
     def build_plan(self) -> list:
         raise NotImplementedError

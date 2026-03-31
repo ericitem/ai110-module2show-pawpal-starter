@@ -12,13 +12,25 @@ The three core actions a user should be able to perform in PawPal+ are:
 
 3. **Generate and view the daily schedule** — The user triggers the scheduler to produce an ordered, time-aware plan for the day. The schedule selects and sequences tasks based on priority and available time, and explains why each task was included and when it is scheduled.
 
-- Briefly describe your initial UML design.
-- What classes did you include, and what responsibilities did you assign to each?
+The initial UML design consists of four classes: Owner, Pet, Task, and Scheduler.
+
+**Owner** holds the constraints that govern the schedule — the owner's name, how many minutes they have available today, and the minimum priority level they care about. It has no behavior beyond storing that data.
+
+**Pet** represents the animal being cared for. It stores the pet's name and species, and holds a reference back to its Owner so the scheduler knows whose constraints apply.
+
+**Task** represents a single care activity. It stores the task title, how long it takes in minutes, and its priority (low, medium, or high). It has one method, `priority_rank()`, which converts the priority string into a number (1, 2, or 3) so tasks can be sorted.
+
+**Scheduler** is the coordinator. It holds an Owner, a Pet, and a list of Tasks. Its `add_task()` method adds tasks to the candidate list. Its `build_plan()` method applies the owner's constraints — filtering out tasks below the minimum priority, sorting the rest by priority, and greedily filling up to the available time budget. Its `explain_plan()` method formats the resulting plan as human-readable text for display in the UI.
 
 **b. Design changes**
 
-- Did your design change during implementation?
-- If yes, describe at least one change and why you made it.
+Two changes were made after reviewing the initial skeleton.
+
+**1. `Task.priority_rank()` now raises a `ValueError` for invalid input.**
+The original design had `priority_rank()` return `0` silently if an unrecognized priority string was passed. This would cause a task to be quietly excluded from every plan with no indication of why. The fix raises a `ValueError` with a descriptive message so the problem is immediately visible instead of producing a hard-to-trace bug.
+
+**2. `Scheduler` gained a `clear_tasks()` method.**
+The initial design had no way to reset the task list once tasks were added. In a Streamlit app where the user can click "Generate schedule" multiple times, the same tasks would be re-added on each run and pile up in the list. Adding `clear_tasks()` lets the UI wipe the list before re-adding tasks, keeping each schedule generation clean and independent.
 
 ---
 
