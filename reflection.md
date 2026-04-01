@@ -126,3 +126,77 @@ The `build_plan()` method is doing too much in one place. It filters by recurren
 The most important thing learned about working with AI on this project is that the AI is most useful when you already know what you want and need help producing it — and most risky when you don't. When the design was clear (generate a method that creates the next occurrence of a recurring task), the AI produced a correct first draft quickly. When the design was ambiguous (what exactly should happen when `mark_task_complete()` is called on a task that doesn't belong to any pet?), the AI produced plausible-looking code that had a subtle state inconsistency that a human had to catch.
 
 The practical implication is that the "lead architect" role is not optional when using AI assistance. Deciding what the system should do, at what level of detail, and then verifying that the generated code actually does it — that responsibility cannot be delegated. AI accelerates the implementation of decisions; it does not replace the decisions themselves.
+
+---
+
+## 6. Multi-Model Prompt Comparison
+
+**Problem chosen:** Implement rescheduling logic for recurring weekly tasks — specifically, when a weekly task is marked complete, automatically create the next occurrence scheduled 7 days in the future and replace the old task in the pet's task list.
+
+---
+
+**Approach A — Broad, open-ended prompt**
+
+> *"Write a Python method that handles recurring task completion and rescheduling."*
+
+The response from this style of prompt produced a `reschedule()` method on the `Task` class itself. It mutated `self.next_due_date` in-place and did not replace the task in any list. The method signature was `task.reschedule()` with no arguments, which means the caller had no way to know a new object had been created — because no new object was created. The task was just updated.
+
+```python
+# Approach A output (simplified)
+def reschedule(self):
+    if self.frequency == "daily":
+        self.next_due_date = date.today() + timedelta(days=1)
+    elif self.frequency == "weekly":
+        self.next_due_date = date.today() + timedelta(days=7)
+    self.last_completed_date = date.today()
+```
+
+**What's wrong with it:** Mutating the same object means `completed` becomes `True` (since `last_completed_date == date.today()`), but `due_today()` also returns `True` immediately because `next_due_date` is set but `last_completed_date` was just updated. The two properties conflict. More importantly, there is no new `Task` object — so if the code elsewhere checks "is this the same task I added yesterday?", the answer is yes, even though conceptually it is tomorrow's task.
+
+**Structure rating:** Moderate. Single method, easy to read. But the design decision (mutate vs. create new) was wrong for this system.
+
+---
+
+**Approach B — Spec-driven, constrained prompt**
+
+> *"Implement `Scheduler.mark_task_complete(task)`. It should: (1) call `task.mark_complete()`, (2) if the frequency is daily or weekly, call `task.create_next_occurrence()` to get a new Task object, (3) find the pet that owns this task by searching `self.owner.pets`, (4) remove the old task and append the new one, (5) return the new task, or None for 'as needed' tasks."*
+
+This produced code that was correct on the first attempt. It followed the separation of concerns already established in the codebase — `mark_complete()` on the Task, `create_next_occurrence()` as a factory, and `Scheduler` as the coordinator that manages the list replacement.
+
+```python
+# Approach B output (matches final implementation)
+def mark_task_complete(self, task):
+    task.mark_complete()
+    if task.frequency not in ("daily", "weekly"):
+        return None
+    owning_pet = None
+    for pet in self.owner.pets:
+        if task in pet.tasks:
+            owning_pet = pet
+            break
+    if owning_pet is None:
+        return None
+    next_task = task.create_next_occurrence()
+    owning_pet.tasks.remove(task)
+    owning_pet.tasks.append(next_task)
+    return next_task
+```
+
+**What's right about it:** The old task is removed and a new object is appended. The scheduler's identity-based search (`if task in pet.tasks`) works correctly because Python list `in` uses object identity for custom objects. The return value signals to the caller whether rescheduling happened.
+
+---
+
+**Comparison**
+
+| Dimension | Approach A | Approach B |
+|---|---|---|
+| Prompt style | Open-ended | Spec-driven with numbered steps |
+| Object model | Mutates existing task | Creates new task object |
+| Consistency | `completed` and `due_today()` conflict | Properties always consistent |
+| Modularity | Logic in Task | Logic split across Task + Scheduler |
+| Testability | Hard (mutation, no return value) | Easy (new object returned, list verifiable) |
+| First-draft correctness | Wrong | Correct |
+
+**Which was more maintainable:** Approach B. When the AI is given a precise spec — method name, arguments, preconditions, postconditions, and return value — it acts as a code-generation tool for a design you've already verified. When it is given an open-ended description, it makes architectural decisions for you, and those decisions may not fit the system you've already built.
+
+**Key takeaway on choosing AI tools for development:** The quality of AI-generated code is bounded by the quality of the specification you provide. A vague prompt produces plausible but architecturally inconsistent code. A prompt written as if it were a docstring — with explicit pre/postconditions and a named return type — produces code that integrates correctly because it was designed against an explicit contract. The investment in writing a precise prompt is smaller than the investment in debugging a subtle mutation bug, and the better prompt also doubles as documentation.

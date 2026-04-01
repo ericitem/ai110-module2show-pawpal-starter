@@ -1,4 +1,6 @@
+import json
 from datetime import date, timedelta
+from pathlib import Path
 
 
 class Task:
@@ -40,6 +42,38 @@ class Task:
             raise ValueError(f"Invalid priority {self.priority!r}. Must be 'low', 'medium', or 'high'.")
         return valid[self.priority]
 
+    def urgency_score(self) -> float:
+        """Composite score combining priority rank and days overdue.
+
+        Formula: priority_rank * 10 + days_overdue
+
+        Days overdue counts how many days past the task's expected recurrence
+        interval have elapsed since it was last completed. A daily task last
+        completed 3 days ago is 2 days overdue; a weekly task last completed
+        10 days ago is 3 days overdue. 'as needed' tasks never accumulate age.
+
+        Examples:
+            - High priority, on time:       3 * 10 + 0  = 30
+            - High priority, 5 days late:   3 * 10 + 5  = 35
+            - Medium priority, never done:  2 * 10 + 1  = 21  (counts as 1 cycle overdue)
+            - Low priority, 8 days late:    1 * 10 + 8  = 18
+
+        A medium task that is badly overdue (score 22+) can outrank a
+        high-priority task that is right on schedule (score 30 unchanged),
+        which keeps the most time-sensitive care from being permanently
+        deprioritized behind high-priority tasks that were completed recently.
+        """
+        rank = self.priority_rank()
+        if self.frequency == "as needed":
+            return float(rank * 10)
+        expected_days = 1 if self.frequency == "daily" else 7
+        if self.last_completed_date is None:
+            days_overdue = float(expected_days)
+        else:
+            elapsed = (date.today() - self.last_completed_date).days
+            days_overdue = float(max(0, elapsed - expected_days))
+        return rank * 10 + days_overdue
+
     def mark_complete(self) -> None:
         """Mark the task as completed today."""
         self.last_completed_date = date.today()
@@ -71,6 +105,34 @@ class Task:
         next_task.next_due_date = date.today() + timedelta(days=days)
         return next_task
 
+    def to_dict(self) -> dict:
+        """Serialize this Task to a JSON-safe dictionary."""
+        return {
+            "title": self.title,
+            "duration_minutes": self.duration_minutes,
+            "priority": self.priority,
+            "frequency": self.frequency,
+            "time": self.time,
+            "last_completed_date": self.last_completed_date.isoformat() if self.last_completed_date else None,
+            "next_due_date": self.next_due_date.isoformat() if self.next_due_date else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Task":
+        """Reconstruct a Task from a dictionary produced by to_dict()."""
+        task = cls(
+            title=data["title"],
+            duration_minutes=data["duration_minutes"],
+            priority=data["priority"],
+            frequency=data["frequency"],
+            time=data.get("time"),
+        )
+        if data.get("last_completed_date"):
+            task.last_completed_date = date.fromisoformat(data["last_completed_date"])
+        if data.get("next_due_date"):
+            task.next_due_date = date.fromisoformat(data["next_due_date"])
+        return task
+
     def __repr__(self):
         """Return a readable string representation of the task."""
         status = "done" if self.completed else "pending"
@@ -97,6 +159,23 @@ class Pet:
         """Return the full list of tasks assigned to this pet."""
         return self.tasks
 
+    def to_dict(self) -> dict:
+        """Serialize this Pet (and all its tasks) to a JSON-safe dictionary."""
+        return {
+            "name": self.name,
+            "species": self.species,
+            "tasks": [t.to_dict() for t in self.tasks],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Pet":
+        """Reconstruct a Pet (and its tasks) from a dictionary produced by to_dict()."""
+        pet = cls(name=data["name"], species=data["species"])
+        for task_data in data.get("tasks", []):
+            # Bypass add_task() duplicate check: stored data is already validated.
+            pet.tasks.append(Task.from_dict(task_data))
+        return pet
+
     def __repr__(self):
         """Return a readable string representation of the pet."""
         return f"Pet({self.name!r}, {self.species!r}, {len(self.tasks)} tasks)"
@@ -120,6 +199,48 @@ class Owner:
         for pet in self.pets:
             all_tasks.extend(pet.get_tasks())
         return all_tasks
+
+    def to_dict(self) -> dict:
+        """Serialize this Owner (and all pets and tasks) to a JSON-safe dictionary."""
+        return {
+            "name": self.name,
+            "available_minutes": self.available_minutes,
+            "min_priority": self.min_priority,
+            "pets": [p.to_dict() for p in self.pets],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Owner":
+        """Reconstruct an Owner (and its full pet/task tree) from a to_dict() dictionary."""
+        owner = cls(
+            name=data["name"],
+            available_minutes=data["available_minutes"],
+            min_priority=data["min_priority"],
+        )
+        for pet_data in data.get("pets", []):
+            owner.pets.append(Pet.from_dict(pet_data))
+        return owner
+
+    def save_to_json(self, path: str = "data.json") -> None:
+        """Persist the owner, all pets, and all tasks to a JSON file.
+
+        Dates are stored as ISO-format strings (YYYY-MM-DD) so they survive
+        serialization and can be reconstructed exactly with date.fromisoformat().
+        The file is written atomically by serializing to a string first so a
+        failed write does not truncate an existing file mid-stream.
+        """
+        payload = json.dumps(self.to_dict(), indent=2)
+        Path(path).write_text(payload)
+
+    @classmethod
+    def load_from_json(cls, path: str = "data.json") -> "Owner":
+        """Load and reconstruct an Owner from a JSON file written by save_to_json().
+
+        Raises FileNotFoundError if the file does not exist — callers should
+        check with Path(path).exists() before calling.
+        """
+        data = json.loads(Path(path).read_text())
+        return cls.from_dict(data)
 
     def __repr__(self):
         """Return a readable string representation of the owner."""
@@ -157,6 +278,57 @@ class Scheduler:
                 total += task.duration_minutes
                 reason = (
                     f"{task.priority.capitalize()} priority — "
+                    f"fits within time budget ({total}/{self.owner.available_minutes} min used)"
+                )
+                scheduled.append({
+                    "task": task,
+                    "reason": reason,
+                    "cumulative_minutes": total,
+                    "pet": pet_name,
+                })
+            else:
+                skipped.append({"task": task, "reason": "exceeds time budget", "pet": pet_name})
+
+        return {"scheduled": scheduled, "skipped": skipped}
+
+    def build_plan_by_urgency(self) -> dict:
+        """Build today's schedule sorted by urgency score instead of plain priority.
+
+        Urgency score = priority_rank * 10 + days_overdue (see Task.urgency_score()).
+        This promotes tasks that are falling behind their recurrence schedule above
+        same-priority tasks that are right on time, preventing important but
+        consistently-completed tasks from always crowding out tasks that keep
+        slipping.
+
+        Returns the same {"scheduled": [...], "skipped": [...]} dict structure as
+        build_plan() so callers can use either method interchangeably.
+        """
+        min_rank = {"low": 1, "medium": 2, "high": 3}.get(self.owner.min_priority, 1)
+
+        scheduled = []
+        skipped = []
+        eligible = []
+
+        for pet in self.owner.pets:
+            for task in pet.get_tasks():
+                if not task.due_today():
+                    reason = "scheduled as needed" if task.frequency == "as needed" else "not due today"
+                    skipped.append({"task": task, "reason": reason, "pet": pet.name})
+                elif task.priority_rank() < min_rank:
+                    skipped.append({"task": task, "reason": "below minimum priority", "pet": pet.name})
+                else:
+                    eligible.append((task, pet.name))
+
+        # Sort by descending urgency score, then ascending duration as tiebreaker.
+        eligible.sort(key=lambda tp: (-tp[0].urgency_score(), tp[0].duration_minutes))
+
+        total = 0
+        for task, pet_name in eligible:
+            if total + task.duration_minutes <= self.owner.available_minutes:
+                total += task.duration_minutes
+                score = task.urgency_score()
+                reason = (
+                    f"{task.priority.capitalize()} priority · urgency {score:.0f} — "
                     f"fits within time budget ({total}/{self.owner.available_minutes} min used)"
                 )
                 scheduled.append({

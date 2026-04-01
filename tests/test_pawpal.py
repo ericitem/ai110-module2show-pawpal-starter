@@ -558,3 +558,158 @@ def test_build_plan_all_tasks_same_priority_sorted_by_duration():
 
     assert titles.index("Short task") < titles.index("Medium task")
     assert titles.index("Medium task") < titles.index("Long task")
+
+
+# ---------------------------------------------------------------------------
+# urgency_score
+# ---------------------------------------------------------------------------
+
+def test_urgency_score_as_needed_equals_priority_times_ten():
+    task = Task("Vet visit", duration_minutes=60, priority="high", frequency="as needed")
+    assert task.urgency_score() == 30.0
+
+
+def test_urgency_score_daily_never_completed_adds_one_cycle():
+    task = Task("Walk", duration_minutes=20, priority="medium", frequency="daily")
+    task.last_completed_date = None
+    # medium=2, daily expected=1, overdue=1 → 2*10 + 1 = 21
+    assert task.urgency_score() == 21.0
+
+
+def test_urgency_score_daily_on_time_no_overdue():
+    task = Task("Walk", duration_minutes=20, priority="high", frequency="daily")
+    task.last_completed_date = date.today() - timedelta(days=1)
+    # elapsed=1, expected=1, overdue=max(0,0)=0 → 3*10 + 0 = 30
+    assert task.urgency_score() == 30.0
+
+
+def test_urgency_score_daily_two_days_late():
+    task = Task("Walk", duration_minutes=20, priority="medium", frequency="daily")
+    task.last_completed_date = date.today() - timedelta(days=3)
+    # elapsed=3, expected=1, overdue=2 → 2*10 + 2 = 22
+    assert task.urgency_score() == 22.0
+
+
+def test_urgency_score_weekly_overdue_boosts_above_on_time_high():
+    # A medium task 5 days late (score 25) must beat a high task on time (score 30)?
+    # No — 25 < 30. But a medium task 11 days late: 2*10+4=24. High on time: 30.
+    # Let's verify a medium 21 days overdue (14 days late) beats a low on time.
+    medium_late = Task("Grooming", duration_minutes=30, priority="medium", frequency="weekly")
+    medium_late.last_completed_date = date.today() - timedelta(days=21)
+    # elapsed=21, expected=7, overdue=14 → 2*10 + 14 = 34
+
+    low_ontime = Task("Play", duration_minutes=15, priority="low", frequency="daily")
+    low_ontime.last_completed_date = date.today() - timedelta(days=1)
+    # elapsed=1, expected=1, overdue=0 → 1*10 + 0 = 10
+
+    assert medium_late.urgency_score() > low_ontime.urgency_score()
+
+
+def test_build_plan_by_urgency_returns_same_structure_as_build_plan():
+    owner = Owner("Jordan", available_minutes=60, min_priority="low")
+    mochi = Pet("Mochi", "dog")
+    mochi.add_task(Task("Walk", duration_minutes=20, priority="high", frequency="daily"))
+    owner.add_pet(mochi)
+    scheduler = Scheduler(owner)
+
+    plan = scheduler.build_plan_by_urgency()
+
+    assert "scheduled" in plan
+    assert "skipped" in plan
+
+
+def test_build_plan_by_urgency_overdue_task_scheduled_first():
+    owner = Owner("Jordan", available_minutes=30, min_priority="low")
+    mochi = Pet("Mochi", "dog")
+    # High-priority task completed yesterday (on time, score=30)
+    high_task = Task("Walk", duration_minutes=15, priority="high", frequency="daily")
+    high_task.last_completed_date = date.today() - timedelta(days=1)
+    # Medium-priority task 8 days overdue (score=2*10+1=21 for weekly, actually
+    # elapsed=8, expected=7, overdue=1 → 2*10+1=21). Not enough to beat 30.
+    # Use a 15-day overdue weekly medium task: elapsed=22, expected=7 → overdue=15 → score=35
+    medium_overdue = Task("Grooming", duration_minutes=10, priority="medium", frequency="weekly")
+    medium_overdue.last_completed_date = date.today() - timedelta(days=22)
+    mochi.add_task(high_task)
+    mochi.add_task(medium_overdue)
+    owner.add_pet(mochi)
+
+    plan = Scheduler(owner).build_plan_by_urgency()
+    titles = [item["task"].title for item in plan["scheduled"]]
+
+    assert titles[0] == "Grooming"  # urgency 35 > walk urgency 30
+
+
+# ---------------------------------------------------------------------------
+# serialization: to_dict / from_dict / save_to_json / load_from_json
+# ---------------------------------------------------------------------------
+
+def test_task_to_dict_and_from_dict_roundtrip():
+    task = Task("Morning walk", duration_minutes=20, priority="high", frequency="daily", time="08:00")
+    task.last_completed_date = date.today() - timedelta(days=1)
+    task.next_due_date = date.today()
+
+    restored = Task.from_dict(task.to_dict())
+
+    assert restored.title == task.title
+    assert restored.duration_minutes == task.duration_minutes
+    assert restored.priority == task.priority
+    assert restored.frequency == task.frequency
+    assert restored.time == task.time
+    assert restored.last_completed_date == task.last_completed_date
+    assert restored.next_due_date == task.next_due_date
+
+
+def test_task_from_dict_handles_null_dates():
+    task = Task("Walk", duration_minutes=20, priority="high")
+    restored = Task.from_dict(task.to_dict())
+
+    assert restored.last_completed_date is None
+    assert restored.next_due_date is None
+
+
+def test_pet_to_dict_and_from_dict_roundtrip():
+    pet = Pet("Mochi", "dog")
+    pet.tasks.append(Task("Walk", duration_minutes=20, priority="high"))
+    pet.tasks.append(Task("Feeding", duration_minutes=10, priority="medium", time="08:00"))
+
+    restored = Pet.from_dict(pet.to_dict())
+
+    assert restored.name == pet.name
+    assert restored.species == pet.species
+    assert len(restored.tasks) == 2
+    assert restored.tasks[0].title == "Walk"
+    assert restored.tasks[1].time == "08:00"
+
+
+def test_owner_to_dict_and_from_dict_roundtrip():
+    owner = Owner("Jordan", available_minutes=90, min_priority="medium")
+    mochi = Pet("Mochi", "dog")
+    mochi.tasks.append(Task("Walk", duration_minutes=20, priority="high"))
+    owner.add_pet(mochi)
+
+    restored = Owner.from_dict(owner.to_dict())
+
+    assert restored.name == owner.name
+    assert restored.available_minutes == owner.available_minutes
+    assert restored.min_priority == owner.min_priority
+    assert len(restored.pets) == 1
+    assert restored.pets[0].name == "Mochi"
+    assert len(restored.pets[0].tasks) == 1
+
+
+def test_save_and_load_json_roundtrip(tmp_path):
+    path = str(tmp_path / "test_data.json")
+    owner = Owner("Jordan", available_minutes=60, min_priority="low")
+    mochi = Pet("Mochi", "dog")
+    t = Task("Walk", duration_minutes=20, priority="high", frequency="daily", time="07:30")
+    t.last_completed_date = date.today() - timedelta(days=1)
+    mochi.tasks.append(t)
+    owner.add_pet(mochi)
+
+    owner.save_to_json(path)
+    loaded = Owner.load_from_json(path)
+
+    assert loaded.name == "Jordan"
+    assert loaded.pets[0].name == "Mochi"
+    assert loaded.pets[0].tasks[0].time == "07:30"
+    assert loaded.pets[0].tasks[0].last_completed_date == date.today() - timedelta(days=1)
